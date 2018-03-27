@@ -4,165 +4,136 @@ from django.views.decorators.csrf import csrf_exempt
 import os
 import time
 import subprocess
+# import re
+import threading
 
 DOCKER_PATH = '/code/media/'
 EXECUTE_PATH = '/code/media/platform/'
 TEAM_PATH = '/code/media/team/'
 SAVE_PATH = '/code/media/battle/'
 
+
+def run_battle(id1, id2, battle_id):
+    # TODO: It seems that starting a new thread is not recommended in Django,
+    # a better practice might be using Celery.
+
+    PLATFORM_TIMEOUT = 3600
+
+    # 运行环境
+    platform = subprocess.Popen(['python3', 'main.py', battle_id + '.txt',
+                                 os.path.join(SAVE_PATH, battle_id + '.zip')],
+                                stdout=subprocess.PIPE, cwd=EXECUTE_PATH)
+    while b'Waiting for connecting' not in platform.stdout.readline():
+        if platform.poll() is not None:
+            raise Exception('platform exited before starting player')
+
+    player1 = subprocess.Popen(['./' + id1 + '.exe'],
+                               cwd=os.path.join(TEAM_PATH, id1))
+
+    while b'connect successfully!' not in platform.stdout.readline():
+        if platform.poll() is not None:
+            raise Exception('platform exited before starting second player')
+
+    player2 = subprocess.Popen(['./' + id2 + '.exe'],
+                               cwd=os.path.join(TEAM_PATH, id2))
+
+    try:
+        platform.wait(timeout=PLATFORM_TIMEOUT)
+    except TimeoutError:
+        raise Exception('platform TLE, time limit = %d' % PLATFORM_TIMEOUT)
+    finally:
+        platform.kill()
+        player1.kill()
+        player2.kill()
+
+
 @csrf_exempt
-#运行main.py，指定输出文件，依次运行两个exe，监测输出文件
+# 运行main.py，指定输出文件，依次运行两个exe，监测输出文件
 def battle(request):
     if request.method == 'GET':
         path = os.getcwd()
         file1 = os.listdir(path)
-        return JsonResponse({'path':path,'file':file1})
+        return JsonResponse({'path': path, 'file': file1})
     elif request.method == 'POST':
-        team1 = request.POST['team1']
-        team2 = request.POST['team2']
+        # team1 = request.POST['team1']
+        # team2 = request.POST['team2']
         id1 = request.POST['id1']
         id2 = request.POST['id2']
-        if (id1 + '.exe') not in os.listdir(TEAM_PATH + id1) or (id2 + '.exe') not in os.listdir(TEAM_PATH + id2):
-            return JsonResponse({'success':False,'message':"请保证对战双方均已上传AI！"})
-        old_path = os.getcwd()
-        result_text = request.POST['battleid'] + '.txt'
-        save_route = SAVE_PATH+ request.POST['battleid'] + '.zip'
-        os.chdir(EXECUTE_PATH)
-        os.system('nohup python3 ' + 'main.py ' + result_text + ' ' + save_route + ' &')#运行环境
-        the_time = time.time()
-        while time.time() - the_time < 3:
-            pass
-        os.chdir(TEAM_PATH + id1)
-        os.system('nohup ./' + id1 + '.exe &')
-        os.chdir(TEAM_PATH + id2)
-        os.system('nohup ./' + id2 + '.exe &')
-        os.chdir(old_path)
-        return JsonResponse({'success':True})
-        '''initial_time = time.time()
-        while time.time() - initial_time < 30:
-            index = os.listdir(EXECUTE_PATH)
-            goal = team1 + team2 + '.txt'
-            if goal in index:
-                print("i got it ")
-                f = open(EXECUTE_PATH + goal,'r')
-                #except:
-                    #return HttpResponse(index)
-                content = f.readlines()[0].split(' ')
-                total_round = content[0]
-                if content[1] == "1":
-                    result = {'winner':team1,'loser':team2}
-                elif content[1] == "2":
-                    result = {'winner':team2,'loser':team1}
-                f.close()
-                os.system('rm ' + EXECUTE_PATH + goal + ' nohup.out')
-                os.system('rm ' + TEAM_PATH + team1 + '/nohup.out')
-                os.system('rm ' + TEAM_PATH + team2 + '/nohup.out')
-                os.system('rm /code/nohup.out')
-                return JsonResponse({'success':True,'total_round':total_round,'result':result})
-        if time.time() - initial_time > 30:
-            return JsonResponse({'success':False,'message':'RunTimeError!'})'''
+        battle_id = request.POST['battleid']
+        """ # Test input fields
+        try:
+            int(id1)
+            int(id2)
+        except ValueError:
+            return JsonResponse({'success': False, 'message': 'id failed input test'})
+        if re.fullmatch('[0-9a-f]{8}', battleid) is None:
+            return JsonResponse({'success': False, 'message': 'battleid failed input test'})
+        """
+        for x in id1, id2:
+            exe = os.path.join(TEAM_PATH, x, x + '.exe')
+            if not os.path.isfile(exe) or not os.access(exe, os.X_OK):
+                return JsonResponse(
+                    {'success': False, 'message': "请保证对战双方均已上传AI！"})
+        threading.Thread(target=run_battle, args=(id1, id2, battle_id)).start()
+        return JsonResponse({'success': True})
+
 
 @csrf_exempt
 def Inquire(request):
     if request.method == 'POST':
         the_battle_id = request.POST['battleid']
-        index = os.listdir(EXECUTE_PATH)
         goal = the_battle_id + '.txt'
-        if goal in index:
+        if os.path.isfile(os.path.join(EXECUTE_PATH, goal)):
             print("i got it ")
-            f = open(EXECUTE_PATH + goal,'r')
-            content = f.readlines()[0].split(' ')
-            total_round = content[0]
-            battle_result = content[1]
-            f.close()
-            os.system('rm /code/nohup.out')
-            os.system('rm ' + EXECUTE_PATH + goal + ' nohup.out')
-            return JsonResponse({'success':True,'total_round':total_round,'result':battle_result})
+            with open(os.path.join(EXECUTE_PATH, goal), 'r') as f:
+                content = f.readlines()[0].split(' ')
+            total_round, battle_result = content[:2]
+            return JsonResponse({'success': True, 'total_round': total_round,
+                                 'result': battle_result})
         else:
-            return JsonResponse({'success':False,'message':'Still in battle!' + goal + str(index)})
-    elif request.method == 'GET':       
+            index = os.listdir(EXECUTE_PATH)
+            return JsonResponse({'success': False,
+                                 'message': 'Still in battle!' + goal
+                                            + str(index)})
+    elif request.method == 'GET':
         '''team1 = request.POST['team1']
         team2 = request.POST['team2']
         old_path = os.getcwd()
         os.chdir(EXECUTE_PATH)
         os.system('nohup python3 ' + 'main.py ' + team1 + team2 + '.txt &')'''
-        return JsonResponse({'success':False,'message':'stupid man!!!'})
+        return JsonResponse({'success': False, 'message': 'stupid man!!!'})
 
-        '''path = os.getcwd()
-        file1 = os.listdir(path)
-        initial_time = time.time()
-        while time.time() - initial_time < 30:
-            index = os.listdir(EXECUTE_PATH)
-            goal = team1 + team2 + '.txt'
-            if goal in index:
-                print("i got it ")
-                f = open(EXECUTE_PATH + goal,'r')
-                #except:
-                    #return HttpResponse(index)
-                content = f.readlines()[0].split(' ')
-                total_round = content[0]
-                if content[1] == "1":
-                    result = {'winner':team1,'loser':team2}
-                elif content[1] == "2":
-                    result = {'winner':team2,'loser':team1}
-                f.close()
-                os.system('rm ' + EXECUTE_PATH + goal + ' nohup.out')
-                os.system('rm ' + TEAM_PATH + team1 + '/nohup.out')
-                os.system('rm ' + TEAM_PATH + team2 + '/nohup.out')
-                os.system('rm /code/nohup.out')
-                return JsonResponse({'success':True,'total_round':total_round,'result':result})
-        if time.time() - initial_time > 30:
-            return JsonResponse({'success':False,'message':'RunTimeError!'})
-        return JsonResponse({'path':path,'file':file1})'''
- 
+
 @csrf_exempt
-def compile(request):#编译报错
+def compile(request):  # 编译报错
     if request.method == 'GET':
         path = os.getcwd()
         file1 = os.listdir(path)
-        return JsonResponse({'path':path,'file':file1})
+        return JsonResponse({'path': path, 'file': file1})
     elif request.method == 'POST':
-        teamname = request.POST['name'].split('/')[-2]
-        filename = request.POST['name'].split('/')[-1]
-        teamid = request.POST['id']
-        old_path = os.getcwd()
-        os.chdir('/code/media/compile')
-        execute = '/code/media/team/' + teamname + '/' + teamname + '.exe'
-        source = '/code/media/team/%s/%s'%(teamname,filename)
-        #cmd = "g++ main.cpp %s.cpp api_player.cpp communication.cpp -pthread -std=c++11 -o"%'test' + execute
-        #cmd = "python -c 'import os;print(os.listdir(os.getcwd())'"
-        cmd = ['g++','main.cpp','%s.cpp'%str(teamname),'api_player.cpp','communication.cpp','-pthread','-std=c++11','-o' + execute]
-        #cmd = ['g++','main.cpp','test.cpp','api_player.cpp','communication.cpp','-pthread','-std=c++11','-o' + execute]        
-        #os.system('cp /code/media/compile/test.exe ' + execute)
-        #os.system('rm %s.cpp'%teamname)
+        teamname, filename = os.path.split(request.POST['name'])
+        teamname = os.path.basename(teamname)
+        # teamid = request.POST['id']
+        cmd = ['g++', 'main.cpp', teamname + '.cpp', 'api_player.cpp',
+               'communication.cpp', '-pthread', '-std=c++11', '-o',
+               os.path.join('/code/media/team', teamname, teamname + '.exe')]
         the_cwd = '/code/media/compile'
         r = subprocess.Popen(
             cmd,
-            cwd = the_cwd,
-            stdout = subprocess.PIPE,
-            stderr = subprocess.PIPE
-            )
-        #os.system('rm %s.cpp'%teamname)
-        os.chdir(old_path)
+            cwd=the_cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
         output = r.stdout.readlines()
         output = [s.decode('utf-8') for s in output]
         error = r.stderr.readlines()
         print(error)
         try:
             error = [s.decode('utf-8') for s in error]
-        except:
-            return JsonResponse({'success':False,'message': '含有中文字符的代码行出现错误！' })
-        flag = True
-        for e in error:
-            if 'error' in e:
-                flag = False
-                break
-
-        if flag == True:
-            return JsonResponse({'success':True,'message': str(output) })
+        except UnicodeDecodeError:
+            return JsonResponse(
+                {'success': False, 'message': '含有中文字符的代码行出现错误！'})
+        if any('error' in e for e in error):
+            return JsonResponse({'success': False, 'message': str(error)})
         else:
-            return JsonResponse({'success':False,'message': str(error) })
-
-        #os.system('g++ main.cpp' + filename + 'api_player.cpp communication.cpp -pthread -std=c++11 -o ' + execute + '>log.txt')
-        #os.system('python3 -c "import os;print(os.listdir(os.getcwd()))"')
-
+            return JsonResponse({'success': True, 'message': str(output)})
