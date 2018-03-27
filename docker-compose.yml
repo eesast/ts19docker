@@ -1,0 +1,22 @@
+version: '3.0'
+
+services:
+#  db:
+#    image: postgres
+  web:
+    build: .
+    #command: python3 example2/manage.py runserver 0.0.0.0:8000
+    #command: python3 -c "import os;p=str(os.getcwd());print(os.listdir(p))"
+    command: uwsgi --ini example2/example2_uwsgi.ini
+
+    volumes:
+      - .:/code
+      - /home/hyb/web/team:/code/media/team
+      - /home/hyb/web/user:/code/media/user
+      - /home/hyb/web/battle:/code/media/battle
+      - /home/hyb/web/game/teamstyle19new/player_file_linux_for_player:/code/media/compile
+      - /home/hyb/web/game/teamstyle19new/src:/code/media/platform
+    #ports:
+    #  - "8888:8002"
+#    depends_on:
+#      - db
