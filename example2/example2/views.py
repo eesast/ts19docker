@@ -38,8 +38,8 @@ def run_battle(id1, id2, battle_id):
                                cwd=os.path.join(TEAM_PATH, id2))
 
     try:
-        platform.wait(timeout=PLATFORM_TIMEOUT)
-    except TimeoutError:
+        platform.communicate(timeout=PLATFORM_TIMEOUT)
+    except subprocess.TimeoutExpired:
         raise Exception('platform TLE, time limit = %d' % PLATFORM_TIMEOUT)
     finally:
         platform.kill()
