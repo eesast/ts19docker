@@ -45,6 +45,9 @@ def run_battle(id1, id2, battle_id):
         platform.kill()
         player1.kill()
         player2.kill()
+        platform.wait()
+        player1.wait()
+        player2.wait()
 
 
 @csrf_exempt
