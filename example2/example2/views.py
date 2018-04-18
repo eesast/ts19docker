@@ -38,13 +38,20 @@ def run_battle(id1, id2, battle_id):
                                cwd=os.path.join(TEAM_PATH, id2))
 
     try:
+        print('Battle', battle_id, 'started')
         platform.communicate(timeout=PLATFORM_TIMEOUT)
     except subprocess.TimeoutExpired:
         raise Exception('platform TLE, time limit = %d' % PLATFORM_TIMEOUT)
     finally:
+        print('Start killing procs')
         platform.kill()
         player1.kill()
         player2.kill()
+        print('SIGKILL sent')
+        platform.wait()
+        player1.wait()
+        player2.wait()
+        print('Kill done')
 
 
 @csrf_exempt
