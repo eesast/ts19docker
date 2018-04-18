@@ -88,6 +88,11 @@ def Inquire(request):
             with open(os.path.join(EXECUTE_PATH, goal), 'r') as f:
                 content = f.readlines()[0].split(' ')
             total_round, battle_result = content[:2]
+            os.chdir(EXECUTE_PATH)
+            try:
+                os.system('rm ' + goal)
+            except:
+                print("====================\nFail to remove the txt file!!!!\n=====================")
             return JsonResponse({'success': True, 'total_round': total_round,
                                  'result': battle_result})
         else:
